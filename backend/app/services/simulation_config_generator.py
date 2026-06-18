@@ -214,8 +214,10 @@ class SimulationConfigGenerator:
     
     # 
     MAX_CONTEXT_LENGTH = 50000
-    # 생성Agent
-    AGENTS_PER_BATCH = 15
+    # 배치당 Agent 수. 로컬 모델(gemma)은 한 응답에 많은 Agent 설정 JSON을
+    # 담으면 토큰 한도(done_reason=length)에 걸려 잘린다. 11개는 통과, 15개는 초과.
+    # 안전하게 8개로 낮춰 배치당 응답을 작게 유지한다.
+    AGENTS_PER_BATCH = 8
     
     # ()
     TIME_CONFIG_CONTEXT_LENGTH = 10000   # 설정
@@ -458,7 +460,7 @@ class SimulationConfigGenerator:
                 return self.llm_client.chat_json(
                     messages=messages,
                     temperature=0.7 - (attempt * 0.1),
-                    max_tokens=4000,
+                    max_tokens=8000,
                 )
             except Exception as e:
                 logger.warning(f"LLM호출/파싱 실패 (attempt {attempt+1}): {str(e)[:80]}")
