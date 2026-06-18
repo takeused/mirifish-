@@ -23,6 +23,7 @@ from openai import OpenAI
 
 from ..config import Config
 from ..utils.logger import get_logger
+from ..utils.llm_client import LLMClient
 from .zep_entity_reader import EntityNode, ZepEntityReader
 
 logger = get_logger('mirofish.simulation_config')
@@ -240,7 +241,15 @@ class SimulationConfigGenerator:
             api_key=self.api_key,
             base_url=self.base_url
         )
-    
+
+        # 로컬 추론 모델(Ollama 등) 대응 패치 포함 통합 클라이언트.
+        # 직접 OpenAI 호출은 think:false 누락으로 빈 응답/무한 reasoning을 유발한다.
+        self.llm_client = LLMClient(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            model=self.model_name,
+        )
+
     def generate_config(
         self,
         simulation_id: str,
@@ -433,52 +442,29 @@ class SimulationConfigGenerator:
         return "\n".join(lines)
     
     def _call_llm_with_retry(self, prompt: str, system_prompt: str) -> Dict[str, Any]:
-        """LLM호출, JSON"""
-        import re
-        
+        """LLM호출, JSON(통합 클라이언트 경유: Ollama think:false + json + num_predict)"""
+        import time
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+
         max_attempts = 3
         last_error = None
-        
+
         for attempt in range(max_attempts):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt}
-                    ],
-                    response_format={"type": "json_object"},
-                    temperature=0.7 - (attempt * 0.1)  # 
-                    # max_tokens, LLM
+                return self.llm_client.chat_json(
+                    messages=messages,
+                    temperature=0.7 - (attempt * 0.1),
+                    max_tokens=4000,
                 )
-                
-                content = response.choices[0].message.content
-                finish_reason = response.choices[0].finish_reason
-                
-                # 
-                if finish_reason == 'length':
-                    logger.warning(f"LLM (attempt {attempt+1})")
-                    content = self._fix_truncated_json(content)
-                
-                # JSON
-                try:
-                    return json.loads(content)
-                except json.JSONDecodeError as e:
-                    logger.warning(f"JSON실패 (attempt {attempt+1}): {str(e)[:80]}")
-                    
-                    # JSON
-                    fixed = self._try_fix_config_json(content)
-                    if fixed:
-                        return fixed
-                    
-                    last_error = e
-                    
             except Exception as e:
-                logger.warning(f"LLM호출실패 (attempt {attempt+1}): {str(e)[:80]}")
+                logger.warning(f"LLM호출/파싱 실패 (attempt {attempt+1}): {str(e)[:80]}")
                 last_error = e
-                import time
                 time.sleep(2 * (attempt + 1))
-        
+
         raise last_error or Exception("LLM호출실패")
     
     def _fix_truncated_json(self, content: str) -> str:

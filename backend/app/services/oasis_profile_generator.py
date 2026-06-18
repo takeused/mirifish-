@@ -16,10 +16,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from openai import OpenAI
-from zep_cloud.client import Zep
-
 from ..config import Config
 from ..utils.logger import get_logger
+from ..utils.llm_client import LLMClient
+from ..utils.zep_client import create_zep_client
 from .zep_entity_reader import EntityNode, ZepEntityReader
 
 logger = get_logger('mirofish.oasis_profile')
@@ -196,7 +196,16 @@ class OasisProfileGenerator:
             api_key=self.api_key,
             base_url=self.base_url
         )
-        
+
+        # 로컬 추론 모델(Ollama 등) 대응 패치를 포함한 통합 LLM 클라이언트.
+        # 직접 OpenAI 호출은 gemma 같은 추론 모델에서 think:false가 빠져
+        # 무한 reasoning으로 멈추므로 프로필 생성도 이 클라이언트를 경유한다.
+        self.llm_client = LLMClient(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            model=self.model_name,
+        )
+
         # Zep
         self.zep_api_key = zep_api_key or Config.ZEP_API_KEY
         self.zep_client = None
@@ -204,7 +213,7 @@ class OasisProfileGenerator:
         
         if self.zep_api_key:
             try:
-                self.zep_client = Zep(api_key=self.zep_api_key)
+                self.zep_client = create_zep_client(self.zep_api_key)
             except Exception as e:
                 logger.warning(f"Zep실패: {e}")
     
@@ -520,61 +529,37 @@ class OasisProfileGenerator:
                 entity_name, entity_type, entity_summary, entity_attributes, context
             )
 
-        # 생성, 
+        # 통합 LLM 클라이언트 경유(Ollama 네이티브 think:false + json + num_predict).
+        messages = [
+            {"role": "system", "content": self._get_system_prompt(is_individual)},
+            {"role": "user", "content": prompt}
+        ]
+
         max_attempts = 3
         last_error = None
-        
+
         for attempt in range(max_attempts):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=[
-                        {"role": "system", "content": self._get_system_prompt(is_individual)},
-                        {"role": "user", "content": prompt}
-                    ],
-                    response_format={"type": "json_object"},
-                    temperature=0.7 - (attempt * 0.1)  # 
-                    # max_tokens, LLM
+                result = self.llm_client.chat_json(
+                    messages=messages,
+                    temperature=0.7 - (attempt * 0.1),
+                    max_tokens=2000,
                 )
-                
-                content = response.choices[0].message.content
-                
-                # (finish_reason'stop')
-                finish_reason = response.choices[0].finish_reason
-                if finish_reason == 'length':
-                    logger.warning(f"LLM (attempt {attempt+1}), ...")
-                    content = self._fix_truncated_json(content)
-                
-                # JSON
-                try:
-                    result = json.loads(content)
-                    
-                    # 
-                    if "bio" not in result or not result["bio"]:
-                        result["bio"] = entity_summary[:200] if entity_summary else f"{entity_type}: {entity_name}"
-                    if "persona" not in result or not result["persona"]:
-                        result["persona"] = entity_summary or f"{entity_name}{entity_type}."
-                    
-                    return result
-                    
-                except json.JSONDecodeError as je:
-                    logger.warning(f"JSON실패 (attempt {attempt+1}): {str(je)[:80]}")
-                    
-                    # JSON
-                    result = self._try_fix_json(content, entity_name, entity_type, entity_summary)
-                    if result.get("_fixed"):
-                        del result["_fixed"]
-                        return result
-                    
-                    last_error = je
-                    
+
+                # 필수 필드 보강
+                if "bio" not in result or not result["bio"]:
+                    result["bio"] = entity_summary[:200] if entity_summary else f"{entity_type}: {entity_name}"
+                if "persona" not in result or not result["persona"]:
+                    result["persona"] = entity_summary or f"{entity_name} ({entity_type})"
+
+                return result
+
             except Exception as e:
-                logger.warning(f"LLM호출실패 (attempt {attempt+1}): {str(e)[:80]}")
+                logger.warning(f"LLM호출/파싱 실패 (attempt {attempt+1}): {str(e)[:80]}")
                 last_error = e
-                import time
-                time.sleep(1 * (attempt + 1))  # 
-        
-        logger.warning(f"LLM생성 실패({max_attempts}): {last_error}, 생성")
+                time.sleep(1 * (attempt + 1))
+
+        logger.warning(f"LLM생성 실패({max_attempts}): {last_error}, 규칙 기반 생성으로 폴백")
         return self._generate_profile_rule_based(
             entity_name, entity_type, entity_summary, entity_attributes
         )
