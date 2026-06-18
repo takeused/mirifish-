@@ -279,7 +279,8 @@ class SimulationManager:
             filtered = reader.filter_defined_entities(
                 graph_id=state.graph_id,
                 defined_entity_types=defined_entity_types,
-                enrich_with_edges=True
+                enrich_with_edges=True,
+                rescue_untyped=True  # 타입 미매칭 노드 중 실제 행위자를 LLM으로 구제
             )
             
             state.entities_count = filtered.filtered_count

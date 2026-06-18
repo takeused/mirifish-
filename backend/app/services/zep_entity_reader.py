@@ -7,11 +7,10 @@ import time
 from typing import Dict, Any, List, Optional, Set, Callable, TypeVar
 from dataclasses import dataclass, field
 
-from zep_cloud.client import Zep
-
 from ..config import Config
 from ..utils.logger import get_logger
 from ..utils.zep_paging import fetch_all_nodes, fetch_all_edges
+from ..utils.zep_client import create_zep_client
 
 logger = get_logger('mirofish.zep_entity_reader')
 
@@ -83,7 +82,7 @@ class ZepEntityReader:
         if not self.api_key:
             raise ValueError("ZEP_API_KEY가 설정되지 않았습니다")
         
-        self.client = Zep(api_key=self.api_key)
+        self.client = create_zep_client(self.api_key)
     
     def _call_with_retry(
         self, 
@@ -213,10 +212,11 @@ class ZepEntityReader:
             return []
     
     def filter_defined_entities(
-        self, 
+        self,
         graph_id: str,
         defined_entity_types: Optional[List[str]] = None,
-        enrich_with_edges: bool = True
+        enrich_with_edges: bool = True,
+        rescue_untyped: bool = False
     ) -> FilteredEntities:
         """
         사전 정의 타입에 맞는 엔터티 노드를 필터링한다.
@@ -229,6 +229,10 @@ class ZepEntityReader:
             graph_id: 그래프 ID
             defined_entity_types: 사전 정의 엔터티 타입 목록(선택)
             enrich_with_edges: 연관 엣지 정보까지 수집할지 여부
+            rescue_untyped: 커스텀 타입이 없는 노드(주로 추상 개념)를 1회 배치
+                LLM 호출로 재분류해, '실제 행위자'로 판정된 것만 Person/Organization
+                fallback 타입으로 구제해 에이전트에 포함한다. 개념/주제/기술/규제는
+                계속 제외하므로 품질을 유지하면서 에이전트 수를 늘린다.
 
         Returns:
             FilteredEntities
@@ -248,17 +252,20 @@ class ZepEntityReader:
         # 조건 충족 엔터티 필터링
         filtered_entities = []
         entity_types_found = set()
-        
+        untyped_candidates = []  # 커스텀 타입이 없는 노드 — rescue_untyped 시 LLM 재분류 대상
+
         for node in all_nodes:
             labels = node.get("labels", [])
-            
+
             # "Entity"/"Node" 외 라벨을 최소 1개 포함해야 함
             custom_labels = [l for l in labels if l not in ["Entity", "Node"]]
-            
+
             if not custom_labels:
-                # 기본 라벨만 존재하면 제외
+                # 커스텀 타입이 없는 노드: 기본 제외하되, rescue 대상으로 수집
+                if rescue_untyped:
+                    untyped_candidates.append(node)
                 continue
-            
+
             # 사전 정의 타입 지정 시 매칭 여부 확인
             if defined_entity_types:
                 matching_labels = [l for l in custom_labels if l in defined_entity_types]
@@ -267,10 +274,9 @@ class ZepEntityReader:
                 entity_type = matching_labels[0]
             else:
                 entity_type = custom_labels[0]
-            
+
             entity_types_found.add(entity_type)
-            
-            # 엔터티 노드 객체 생성
+
             entity = EntityNode(
                 uuid=node["uuid"],
                 name=node["name"],
@@ -278,59 +284,150 @@ class ZepEntityReader:
                 summary=node["summary"],
                 attributes=node["attributes"],
             )
-            
-            # 연관 엣지/노드 정보 수집
             if enrich_with_edges:
-                related_edges = []
-                related_node_uuids = set()
-                
-                for edge in all_edges:
-                    if edge["source_node_uuid"] == node["uuid"]:
-                        related_edges.append({
-                            "direction": "outgoing",
-                            "edge_name": edge["name"],
-                            "fact": edge["fact"],
-                            "target_node_uuid": edge["target_node_uuid"],
-                        })
-                        related_node_uuids.add(edge["target_node_uuid"])
-                    elif edge["target_node_uuid"] == node["uuid"]:
-                        related_edges.append({
-                            "direction": "incoming",
-                            "edge_name": edge["name"],
-                            "fact": edge["fact"],
-                            "source_node_uuid": edge["source_node_uuid"],
-                        })
-                        related_node_uuids.add(edge["source_node_uuid"])
-                
-                entity.related_edges = related_edges
-                
-                # 연결된 노드 기본 정보 조회
-                related_nodes = []
-                for related_uuid in related_node_uuids:
-                    if related_uuid in node_map:
-                        related_node = node_map[related_uuid]
-                        related_nodes.append({
-                            "uuid": related_node["uuid"],
-                            "name": related_node["name"],
-                            "labels": related_node["labels"],
-                            "summary": related_node.get("summary", ""),
-                        })
-                
-                entity.related_nodes = related_nodes
-            
+                self._enrich_entity(entity, all_edges, node_map)
             filtered_entities.append(entity)
-        
+
+        # ===== rescue: 커스텀 타입이 없는 노드 중 '실제 행위자'만 LLM으로 구제 =====
+        if rescue_untyped and untyped_candidates:
+            rescued_map = self._reclassify_untyped_nodes(untyped_candidates)
+            rescued_count = 0
+            for node in untyped_candidates:
+                assigned = rescued_map.get(node["uuid"])
+                if assigned not in ("Person", "Organization"):
+                    continue  # 개념/주제/기술/규제 등은 제외(SKIP)
+                entity_types_found.add(assigned)
+                entity = EntityNode(
+                    uuid=node["uuid"],
+                    name=node["name"],
+                    # 구제된 노드에 fallback 타입 라벨을 부여
+                    labels=list(node.get("labels", [])) + [assigned],
+                    summary=node["summary"],
+                    attributes=node["attributes"],
+                )
+                if enrich_with_edges:
+                    self._enrich_entity(entity, all_edges, node_map)
+                filtered_entities.append(entity)
+                rescued_count += 1
+            logger.info(
+                f"untyped 재분류: 후보 {len(untyped_candidates)} → 행위자 구제 {rescued_count}, "
+                f"개념/주제 제외 {len(untyped_candidates) - rescued_count}"
+            )
+
         logger.info(
             f"필터링 완료: 전체 노드 {total_count}, 조건 충족 {len(filtered_entities)}, "
             f"엔터티 타입: {entity_types_found}"
         )
-        
+
         return FilteredEntities(
             entities=filtered_entities,
             entity_types=entity_types_found,
             total_count=total_count,
             filtered_count=len(filtered_entities),
         )
+
+    def _enrich_entity(
+        self,
+        entity: EntityNode,
+        all_edges: List[Dict[str, Any]],
+        node_map: Dict[str, Dict[str, Any]]
+    ) -> None:
+        """엔터티에 연관 엣지/노드 정보를 채운다."""
+        related_edges = []
+        related_node_uuids = set()
+
+        for edge in all_edges:
+            if edge["source_node_uuid"] == entity.uuid:
+                related_edges.append({
+                    "direction": "outgoing",
+                    "edge_name": edge["name"],
+                    "fact": edge["fact"],
+                    "target_node_uuid": edge["target_node_uuid"],
+                })
+                related_node_uuids.add(edge["target_node_uuid"])
+            elif edge["target_node_uuid"] == entity.uuid:
+                related_edges.append({
+                    "direction": "incoming",
+                    "edge_name": edge["name"],
+                    "fact": edge["fact"],
+                    "source_node_uuid": edge["source_node_uuid"],
+                })
+                related_node_uuids.add(edge["source_node_uuid"])
+
+        entity.related_edges = related_edges
+
+        related_nodes = []
+        for related_uuid in related_node_uuids:
+            if related_uuid in node_map:
+                related_node = node_map[related_uuid]
+                related_nodes.append({
+                    "uuid": related_node["uuid"],
+                    "name": related_node["name"],
+                    "labels": related_node["labels"],
+                    "summary": related_node.get("summary", ""),
+                })
+
+        entity.related_nodes = related_nodes
+
+    def _reclassify_untyped_nodes(self, nodes: List[Dict[str, Any]]) -> Dict[str, str]:
+        """
+        커스텀 타입이 없는 노드들을 1회 배치 LLM 호출로 분류한다.
+        각 노드를 Person / Organization / SKIP(추상 개념·주제·기술·규제) 중 하나로 판정.
+
+        보수적 기본값: LLM 실패/누락 시 SKIP(개념을 잘못 에이전트화하지 않음).
+
+        Returns: {node_uuid: "Person"|"Organization"|"SKIP"}
+        """
+        from ..utils.llm_client import LLMClient
+
+        # 인덱스 기반 입력(이름 중복/특수문자 안전)
+        lines = []
+        for i, node in enumerate(nodes):
+            summary = (node.get("summary") or "").strip().replace("\n", " ")
+            if len(summary) > 200:
+                summary = summary[:200]
+            name = node.get("name", "")
+            lines.append(f"{i}. {name} — {summary}" if summary else f"{i}. {name}")
+        items_block = "\n".join(lines)
+
+        system_prompt = (
+            "You classify knowledge-graph entities for a social media simulation. "
+            "For each item decide whether it is a concrete social ACTOR that could post or "
+            "react on social media, or an abstract concept.\n"
+            "- Person: an individual human or human role (e.g. a CEO, a named expert, an analyst).\n"
+            "- Organization: a company, agency, institution, media outlet, or community group.\n"
+            "- SKIP: abstract topics, technologies, regulations, risks, events, or documents that "
+            "cannot speak (e.g. 'security', 'EU AI Act', 'data sovereignty', 'AI', 'software').\n"
+            'Return ONLY valid JSON: {"items": [{"index": <int>, "type": "Person|Organization|SKIP"}]}'
+        )
+        user_prompt = f"Classify each item:\n\n{items_block}"
+
+        result_map: Dict[str, str] = {}
+        try:
+            client = LLMClient()
+            data = client.chat_json(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.0,
+                max_tokens=4000,
+            )
+            for item in data.get("items", []):
+                try:
+                    idx = int(item.get("index"))
+                except (TypeError, ValueError):
+                    continue
+                t = item.get("type")
+                if 0 <= idx < len(nodes) and t in ("Person", "Organization", "SKIP"):
+                    result_map[nodes[idx]["uuid"]] = t
+        except Exception as e:
+            logger.warning(f"untyped 재분류 LLM 실패: {str(e)[:120]} — 전부 SKIP 처리")
+
+        # 응답 누락분은 보수적으로 SKIP
+        for node in nodes:
+            result_map.setdefault(node["uuid"], "SKIP")
+        return result_map
     
     def get_entity_with_context(
         self, 
