@@ -3,91 +3,79 @@
 API 1: 문서 내용을 분석해 사회 시뮬레이션에 맞는 엔터티/관계 타입을 생성한다.
 """
 
-import json
+import re
 from typing import Dict, Any, List, Optional
 from ..utils.llm_client import LLMClient
 
 
-# 온톨로지 생성을 위한 시스템 프롬프트
-ONTOLOGY_SYSTEM_PROMPT = """너는 지식 그래프 온톨로지 설계 전문가다.
-주어진 문서 내용과 시뮬레이션 요구사항을 바탕으로 **소셜 미디어 여론 시뮬레이션**에 맞는
-엔터티 타입과 관계 타입을 설계하라.
+# 1차 호출: 엔터티 타입 + 문서 분석 요약 생성용 시스템 프롬프트
+ENTITY_SYSTEM_PROMPT = """You design the ENTITY types of a knowledge-graph ontology for a social media opinion simulation.
+Return ONLY valid JSON. Do not use markdown. Do not explain.
 
-중요:
-- 반드시 **유효한 JSON만** 출력한다.
-- JSON 외 텍스트는 절대 출력하지 않는다.
+Entity types must be concrete actors that can speak, react, influence, or spread information.
+Good entity types: people, expert roles, companies, agencies, media outlets, communities, user groups.
+Bad entity types: abstract topics, emotions, trends, opinions, policies by themselves.
 
-## 작업 배경
+Return this exact JSON shape:
 
-우리는 소셜 미디어 여론 시뮬레이션 시스템을 구축한다.
-이 시스템에서 엔터티는 실제로 발화/상호작용/정보 확산이 가능한 주체여야 한다.
-
-엔터티 예시(허용):
-- 개인(공인, 당사자, 전문가, 일반 사용자 등)
-- 기업/기관/단체(공식 계정 포함)
-- 정부 부처/규제기관
-- 언론사/플랫폼
-- 특정 집단 대표(팬덤, 동문회, 시민단체 등)
-
-엔터티 예시(금지):
-- 추상 개념(여론, 감정, 추세 등)
-- 주제/이슈(교육 개혁, 학술 윤리 등)
-- 태도 자체(찬성 진영, 반대 진영 등)
-
-## 출력 형식
-
-아래 구조를 가진 JSON으로 출력:
-
-```json
 {
   "entity_types": [
     {
-      "name": "EntityTypeName (영문 PascalCase)",
-      "description": "영문 설명(100자 이내)",
+      "name": "EntityTypeName",
+      "description": "English description under 60 characters",
       "attributes": [
-        {
-          "name": "attribute_name (영문 snake_case)",
-          "type": "text",
-          "description": "속성 설명"
-        }
+        {"name": "attribute_name", "type": "text", "description": "English description"}
       ],
-      "examples": ["example1", "example2"]
+      "examples": []
     }
   ],
+  "analysis_summary": "Short English summary of the document"
+}
+
+Rules:
+1. Create exactly 10 entity_types.
+2. The last two entity_types must be Person and Organization.
+3. The first eight must be concrete types grounded in the document.
+4. Entity type names must be English PascalCase.
+5. Attribute names must be English snake_case.
+6. Each entity type should have 1 to 2 attributes.
+7. Do not use reserved attribute names: name, uuid, group_id, created_at, summary.
+8. Keep every description under 60 characters.
+9. Keep examples arrays empty.
+10. Use compact JSON with no markdown.
+"""
+
+# 2차 호출: 관계(엣지) 타입 생성용 시스템 프롬프트
+# 1차에서 확정된 엔터티 타입 목록을 컨텍스트로 받아 관계만 설계한다.
+EDGE_SYSTEM_PROMPT = """You design the EDGE (relationship) types of a knowledge-graph ontology for a social media opinion simulation.
+Return ONLY valid JSON. Do not use markdown. Do not explain.
+
+You are given a fixed list of entity types. Design relationships that reflect real social
+interaction: influence, mention, reaction, collaboration, conflict, reporting, advising.
+
+Return this exact JSON shape:
+
+{
   "edge_types": [
     {
-      "name": "RELATION_NAME (영문 UPPER_SNAKE_CASE)",
-      "description": "영문 설명(100자 이내)",
+      "name": "RELATION_NAME",
+      "description": "English description under 60 characters",
       "source_targets": [
         {"source": "SourceEntityType", "target": "TargetEntityType"}
       ],
       "attributes": []
     }
-  ],
-  "analysis_summary": "문서 핵심 분석 요약"
+  ]
 }
-```
 
-## 설계 규칙 (반드시 준수)
-
-1) 엔터티 타입
-- 정확히 **10개**를 출력한다.
-- 마지막 2개는 반드시 fallback 타입:
-  - `Person`
-  - `Organization`
-- 앞 8개는 문서 맥락 기반의 구체 타입으로 설계한다.
-
-2) 관계 타입
-- 6~10개로 설계한다.
-- 실제 소셜 상호작용(영향, 언급, 반응, 협업, 대립 등)을 반영한다.
-- `source_targets`가 정의된 엔터티 타입들을 충분히 포괄해야 한다.
-
-3) 속성 타입
-- 엔터티 타입당 1~3개 핵심 속성만 정의한다.
-- 예약어는 속성명으로 사용 금지:
-  `name`, `uuid`, `group_id`, `created_at`, `summary`
-- 권장 예시:
-  `full_name`, `title`, `role`, `position`, `location`, `description`
+Rules:
+1. Create 6 to 8 edge_types.
+2. Edge type names must be English UPPER_SNAKE_CASE.
+3. Every source and target MUST be one of the provided entity type names.
+4. Each edge type must have at least one source_targets pair.
+5. Keep every description under 60 characters.
+6. Keep attributes arrays empty.
+7. Use compact JSON with no markdown.
 """
 
 
@@ -109,53 +97,73 @@ class OntologyGenerator:
         """
         온톨로지 정의를 생성한다.
 
+        gemma 같은 로컬 모델은 긴 JSON을 한 번에 일관되게 출력하지 못해
+        후반부(엣지)가 깨지는 문제가 있다. 그래서 2단계로 분리한다.
+          1차: 엔터티 타입 + 문서 분석 요약
+          2차: 확정된 엔터티 목록을 컨텍스트로 관계(엣지) 타입
+
         Args:
             document_texts: 문서 텍스트 목록
             simulation_requirement: 시뮬레이션 요구사항
             additional_context: 추가 컨텍스트
 
         Returns:
-            온톨로지 정의(`entity_types`, `edge_types` 등)
+            온톨로지 정의(`entity_types`, `edge_types`, `analysis_summary`)
         """
-        # 사용자 메시지 구성
-        user_message = self._build_user_message(
-            document_texts, 
-            simulation_requirement,
-            additional_context
-        )
-        
-        messages = [
-            {"role": "system", "content": ONTOLOGY_SYSTEM_PROMPT},
-            {"role": "user", "content": user_message}
+        combined_text = self._combine_text(document_texts)
+
+        # 1차 호출: 엔터티 타입 + 분석 요약
+        entity_messages = [
+            {"role": "system", "content": ENTITY_SYSTEM_PROMPT},
+            {"role": "user", "content": self._build_entity_message(
+                combined_text, simulation_requirement, additional_context
+            )}
         ]
-        
-        # LLM 호출
-        result = self.llm_client.chat_json(
-            messages=messages,
+        entity_result = self.llm_client.chat_json(
+            messages=entity_messages,
             temperature=0.3,
-            max_tokens=4096
+            max_tokens=8000
         )
-        
-        # 검증 및 후처리
-        result = self._validate_and_process(result)
-        
-        return result
-    
+
+        entity_types = self._process_entities(entity_result.get("entity_types", []))
+        analysis_summary = entity_result.get("analysis_summary", "")
+        if not isinstance(analysis_summary, str):
+            analysis_summary = ""
+
+        # 2차 호출: 엣지 타입 (확정 엔터티 목록을 컨텍스트로 전달)
+        entity_names = [e["name"] for e in entity_types]
+        edge_messages = [
+            {"role": "system", "content": EDGE_SYSTEM_PROMPT},
+            {"role": "user", "content": self._build_edge_message(
+                entity_names, simulation_requirement
+            )}
+        ]
+        edge_result = self.llm_client.chat_json(
+            messages=edge_messages,
+            temperature=0.3,
+            max_tokens=6000
+        )
+
+        edge_types = self._process_edges(edge_result.get("edge_types", []), entity_names)
+
+        return {
+            "entity_types": entity_types,
+            "edge_types": edge_types,
+            "analysis_summary": analysis_summary,
+        }
+
     # LLM에 전달할 텍스트 최대 길이(5만자)
     MAX_TEXT_LENGTH_FOR_LLM = 50000
-    
-    def _build_user_message(
-        self,
-        document_texts: List[str],
-        simulation_requirement: str,
-        additional_context: Optional[str]
-    ) -> str:
-        """사용자 메시지를 구성한다."""
 
-        # 문서 텍스트 병합
+    # Zep API 제한: 커스텀 엔터티/엣지 타입 각각 최대 10개
+    MAX_ENTITY_TYPES = 10
+    MAX_EDGE_TYPES = 10
+
+    def _combine_text(self, document_texts: List[str]) -> str:
+        """문서 텍스트를 병합하고 길이 제한을 적용한다."""
         combined_text = "\n\n---\n\n".join(document_texts)
         original_length = len(combined_text)
-        
+
         # 5만자를 넘으면 잘라서 전달(그래프 구축 원문에는 영향 없음)
         if len(combined_text) > self.MAX_TEXT_LENGTH_FOR_LLM:
             combined_text = combined_text[:self.MAX_TEXT_LENGTH_FOR_LLM]
@@ -163,70 +171,75 @@ class OntologyGenerator:
                 f"\n\n...(원문 총 {original_length}자 중 "
                 f"앞 {self.MAX_TEXT_LENGTH_FOR_LLM}자만 온톨로지 분석에 사용)..."
             )
-        
-        message = f"""## 시뮬레이션 요구사항
+        return combined_text
+
+    def _build_entity_message(
+        self,
+        combined_text: str,
+        simulation_requirement: str,
+        additional_context: Optional[str]
+    ) -> str:
+        """1차(엔터티) 호출용 사용자 메시지를 구성한다."""
+        message = f"""Simulation requirement:
 
 {simulation_requirement}
 
-## 문서 내용
+Document text:
 
 {combined_text}
 """
-        
         if additional_context:
             message += f"""
-## 추가 설명
+Additional context:
 
 {additional_context}
 """
-        
         message += """
-위 내용을 바탕으로 사회 여론 시뮬레이션에 적합한 엔터티/관계 타입을 설계하세요.
-
-**필수 규칙**:
-1. 엔터티 타입은 정확히 10개
-2. 마지막 2개는 fallback 타입: Person, Organization
-3. 앞 8개는 문서 맥락 기반의 구체 타입
-4. 엔터티는 현실에서 발화 가능한 주체여야 하며 추상 개념은 금지
-5. 속성명에 `name`, `uuid`, `group_id` 같은 예약어 사용 금지
+Design the entity types for a social opinion simulation from the document.
+Return only valid JSON matching the system schema.
 """
-        
         return message
-    
-    def _validate_and_process(self, result: Dict[str, Any]) -> Dict[str, Any]:
-        """결과를 검증하고 후처리한다."""
-        
-        # 필수 필드 보장
-        if "entity_types" not in result:
-            result["entity_types"] = []
-        if "edge_types" not in result:
-            result["edge_types"] = []
-        if "analysis_summary" not in result:
-            result["analysis_summary"] = ""
-        
-        # 엔터티 타입 검증
-        for entity in result["entity_types"]:
-            if "attributes" not in entity:
+
+    def _build_edge_message(
+        self,
+        entity_names: List[str],
+        simulation_requirement: str
+    ) -> str:
+        """2차(엣지) 호출용 사용자 메시지를 구성한다."""
+        names_block = "\n".join(f"- {name}" for name in entity_names)
+        return f"""Simulation requirement:
+
+{simulation_requirement}
+
+Entity types (use these names exactly for every source and target):
+
+{names_block}
+
+Design the relationship (edge) types connecting these entities.
+Return only valid JSON matching the system schema.
+"""
+
+    def _process_entities(self, entity_types: Any) -> List[Dict[str, Any]]:
+        """엔터티 타입을 검증/정규화하고 fallback 타입을 보장한다."""
+        if not isinstance(entity_types, list):
+            entity_types = []
+
+        cleaned: List[Dict[str, Any]] = []
+        for entity in entity_types:
+            if not isinstance(entity, dict):
+                continue
+            name = entity.get("name")
+            # 깨진 항목 방어: 이름이 PascalCase 식별자가 아니면 폐기
+            if not isinstance(name, str) or not re.match(r"^[A-Za-z][A-Za-z0-9]*$", name):
+                continue
+            if "attributes" not in entity or not isinstance(entity["attributes"], list):
                 entity["attributes"] = []
-            if "examples" not in entity:
+            if "examples" not in entity or not isinstance(entity["examples"], list):
                 entity["examples"] = []
-            # description 길이 제한(100자)
             if len(entity.get("description", "")) > 100:
                 entity["description"] = entity["description"][:97] + "..."
-        
-        # 관계 타입 검증
-        for edge in result["edge_types"]:
-            if "source_targets" not in edge:
-                edge["source_targets"] = []
-            if "attributes" not in edge:
-                edge["attributes"] = []
-            if len(edge.get("description", "")) > 100:
-                edge["description"] = edge["description"][:97] + "..."
-        
-        # Zep API 제한: 커스텀 엔터티/엣지 타입 각각 최대 10개
-        MAX_ENTITY_TYPES = 10
-        MAX_EDGE_TYPES = 10
-        
+            cleaned.append(entity)
+
         # fallback 타입 정의
         person_fallback = {
             "name": "Person",
@@ -237,7 +250,6 @@ class OntologyGenerator:
             ],
             "examples": ["ordinary citizen", "anonymous netizen"]
         }
-        
         organization_fallback = {
             "name": "Organization",
             "description": "Any organization not fitting other specific organization types.",
@@ -247,41 +259,73 @@ class OntologyGenerator:
             ],
             "examples": ["small business", "community group"]
         }
-        
-        # fallback 타입 존재 여부 확인
-        entity_names = {e["name"] for e in result["entity_types"]}
-        has_person = "Person" in entity_names
-        has_organization = "Organization" in entity_names
-        
-        # 추가할 fallback 타입 목록
+
+        entity_names = {e["name"] for e in cleaned}
         fallbacks_to_add = []
-        if not has_person:
+        if "Person" not in entity_names:
             fallbacks_to_add.append(person_fallback)
-        if not has_organization:
+        if "Organization" not in entity_names:
             fallbacks_to_add.append(organization_fallback)
-        
+
         if fallbacks_to_add:
-            current_count = len(result["entity_types"])
+            current_count = len(cleaned)
             needed_slots = len(fallbacks_to_add)
-            
-            # 추가 후 10개를 넘으면 기존 타입 일부 제거
-            if current_count + needed_slots > MAX_ENTITY_TYPES:
-                # 제거 대상 개수 계산
-                to_remove = current_count + needed_slots - MAX_ENTITY_TYPES
-                # 뒤에서 제거(앞쪽의 중요한 구체 타입 우선 보존)
-                result["entity_types"] = result["entity_types"][:-to_remove]
-            
-            # fallback 타입 추가
-            result["entity_types"].extend(fallbacks_to_add)
-        
-        # 최종 제한 재확인(방어적 처리)
-        if len(result["entity_types"]) > MAX_ENTITY_TYPES:
-            result["entity_types"] = result["entity_types"][:MAX_ENTITY_TYPES]
-        
-        if len(result["edge_types"]) > MAX_EDGE_TYPES:
-            result["edge_types"] = result["edge_types"][:MAX_EDGE_TYPES]
-        
-        return result
+            # 추가 후 10개를 넘으면 뒤에서 제거(앞쪽 구체 타입 우선 보존)
+            if current_count + needed_slots > self.MAX_ENTITY_TYPES:
+                to_remove = current_count + needed_slots - self.MAX_ENTITY_TYPES
+                cleaned = cleaned[:-to_remove]
+            cleaned.extend(fallbacks_to_add)
+
+        if len(cleaned) > self.MAX_ENTITY_TYPES:
+            cleaned = cleaned[:self.MAX_ENTITY_TYPES]
+
+        return cleaned
+
+    def _process_edges(
+        self,
+        edge_types: Any,
+        entity_names: List[str]
+    ) -> List[Dict[str, Any]]:
+        """엣지 타입을 검증/정규화한다. 깨진 항목과 잘못된 참조는 폐기한다."""
+        if not isinstance(edge_types, list):
+            edge_types = []
+
+        valid_names = set(entity_names)
+        cleaned: List[Dict[str, Any]] = []
+
+        for edge in edge_types:
+            if not isinstance(edge, dict):
+                continue
+            name = edge.get("name")
+            # 깨진 항목 방어: 이름이 UPPER_SNAKE_CASE 식별자가 아니면 폐기
+            if not isinstance(name, str) or not re.match(r"^[A-Z][A-Z0-9_]*$", name):
+                continue
+
+            # source/target이 확정 엔터티 목록에 있는 쌍만 유지
+            raw_pairs = edge.get("source_targets")
+            if not isinstance(raw_pairs, list):
+                raw_pairs = []
+            pairs = [
+                st for st in raw_pairs
+                if isinstance(st, dict)
+                and st.get("source") in valid_names
+                and st.get("target") in valid_names
+            ]
+            if not pairs:
+                # 유효한 관계 쌍이 하나도 없으면 폐기
+                continue
+
+            edge["source_targets"] = pairs
+            if "attributes" not in edge or not isinstance(edge["attributes"], list):
+                edge["attributes"] = []
+            if len(edge.get("description", "")) > 100:
+                edge["description"] = edge["description"][:97] + "..."
+            cleaned.append(edge)
+
+        if len(cleaned) > self.MAX_EDGE_TYPES:
+            cleaned = cleaned[:self.MAX_EDGE_TYPES]
+
+        return cleaned
     
     def generate_python_code(self, ontology: Dict[str, Any]) -> str:
         """
