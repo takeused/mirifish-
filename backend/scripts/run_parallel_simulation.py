@@ -1008,7 +1008,10 @@ def create_model(config: Dict[str, Any], use_boost: bool = False):
         # 설정
         llm_api_key = os.environ.get("LLM_API_KEY", "")
         llm_base_url = os.environ.get("LLM_BASE_URL", "")
-        llm_model = os.environ.get("LLM_MODEL_NAME", "")
+        # 엔진(시뮬레이션 에이전트 + 인터뷰)용 모델은 별도로 분리할 수 있다.
+        # OASIS_ENGINE_MODEL을 지정하면 그 모델(예: 빠른 gemma4:e4b)을 쓰고,
+        # 리포트 본문/온톨로지/프로필/config 등 llm_client 경로는 LLM_MODEL_NAME(26b) 유지.
+        llm_model = os.environ.get("OASIS_ENGINE_MODEL", "") or os.environ.get("LLM_MODEL_NAME", "")
         config_label = "[LLM]"
     
     #  .env 진행 중,  config 
