@@ -1027,9 +1027,14 @@ def create_model(config: Dict[str, Any], use_boost: bool = False):
     
     print(f"{config_label} model={llm_model}, base_url={llm_base_url[:40] if llm_base_url else ''}...")
     
+    # 로컬 26B 모델은 동시 부하(에이전트 라운드 + 인터뷰)에서 응답이 매우 느려
+    # camel 기본 timeout으로는 APITimeoutError가 난다. 타임아웃을 크게 잡는다.
+    llm_timeout = float(os.environ.get("OASIS_LLM_TIMEOUT", "1800"))
     return ModelFactory.create(
         model_platform=ModelPlatformType.OPENAI,
         model_type=llm_model,
+        timeout=llm_timeout,
+        max_retries=2,
     )
 
 

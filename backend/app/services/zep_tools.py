@@ -8,17 +8,17 @@ Zep도구
 3. QuickSearch(검색)- 
 """
 
+import os
 import time
 import json
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 
-from zep_cloud.client import Zep
-
 from ..config import Config
 from ..utils.logger import get_logger
 from ..utils.llm_client import LLMClient
 from ..utils.zep_paging import fetch_all_nodes, fetch_all_edges
+from ..utils.zep_client import create_zep_client
 
 logger = get_logger('mirofish.zep_tools')
 
@@ -426,7 +426,7 @@ class ZepToolsService:
         if not self.api_key:
             raise ValueError("ZEP_API_KEY 설정")
         
-        self.client = Zep(api_key=self.api_key)
+        self.client = create_zep_client(self.api_key)
         # LLMInsightForge생성질문
         self._llm_client = llm_client
         logger.info("ZepToolsService 완료")
@@ -1354,11 +1354,14 @@ class ZepToolsService:
             logger.info(f"호출인터뷰API(플랫폼): {len(interviews_request)}개Agent")
             
             # 호출 SimulationRunner 인터뷰(platform, 플랫폼 인터뷰)
+            # 로컬 26B 모델은 다수 에이전트 인터뷰가 180초를 쉽게 넘긴다.
+            # IPC 대기 타임아웃을 엔진 LLM 타임아웃과 맞춰 크게 잡는다(env로 조정).
+            interview_timeout = float(os.environ.get("OASIS_INTERVIEW_TIMEOUT", "1800"))
             api_result = SimulationRunner.interview_agents_batch(
                 simulation_id=simulation_id,
                 interviews=interviews_request,
                 platform=None,  # platform, 플랫폼 인터뷰
-                timeout=180.0   # 플랫폼
+                timeout=interview_timeout
             )
             
             logger.info(f"인터뷰API반환: {api_result.get('interviews_count', 0)}개, success={api_result.get('success')}")
