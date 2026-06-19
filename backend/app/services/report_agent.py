@@ -1215,7 +1215,7 @@ class ReportAgent:
             response = self.llm.chat(
                 messages=messages,
                 temperature=0.5,
-                max_tokens=4096
+                max_tokens=8000
             )
 
             #  LLM 반환 None(API )
@@ -1418,7 +1418,7 @@ class ReportAgent:
         response = self.llm.chat(
             messages=messages,
             temperature=0.5,
-            max_tokens=4096
+            max_tokens=8000
         )
 
         #  LLM 반환 None

@@ -12,6 +12,9 @@ import requests
 from openai import OpenAI
 
 from ..config import Config
+from .logger import get_logger
+
+logger = get_logger('mirofish.llm_client')
 
 
 class LLMClient:
@@ -79,7 +82,12 @@ class LLMClient:
         data = response.json()
         if data.get("done_reason") == "length":
             content = (data.get("message") or {}).get("content", "").strip()
-            raise ValueError(f"Ollama stopped at token limit before finishing the response: {content[:2000]}")
+            # JSON은 잘리면 파싱 불가 → 에러로 올려 상위에서 재시도/복구하게 한다.
+            if json_mode:
+                raise ValueError(f"Ollama stopped at token limit before finishing the response: {content[:2000]}")
+            # 평문은 잘려도 사용 가능 → 전체 실패 대신 부분 응답을 반환한다.
+            logger.warning("Ollama가 토큰 한도에서 응답을 끊음(평문) — 부분 응답 반환")
+            return content
         return (data.get("message") or {}).get("content", "").strip()
     
     def chat(
