@@ -38,6 +38,10 @@ class LLMClient:
             base_url=self.base_url
         )
 
+        # 직전 chat() 호출이 토큰 한도(done_reason=length)로 잘렸는지 여부.
+        # auto_continue로 이어쓰기를 모두 소진한 뒤에도 여전히 잘렸으면 True로 남는다.
+        self.last_truncated = False
+
     def _is_ollama(self) -> bool:
         parsed = urlparse(self.base_url)
         return parsed.hostname in {"localhost", "127.0.0.1"} and parsed.port == 11434
@@ -87,7 +91,9 @@ class LLMClient:
                 raise ValueError(f"Ollama stopped at token limit before finishing the response: {content[:2000]}")
             # 평문은 잘려도 사용 가능 → 전체 실패 대신 부분 응답을 반환한다.
             logger.warning("Ollama가 토큰 한도에서 응답을 끊음(평문) — 부분 응답 반환")
+            self.last_truncated = True
             return content
+        self.last_truncated = False
         return (data.get("message") or {}).get("content", "").strip()
     
     def chat(
@@ -95,22 +101,43 @@ class LLMClient:
         messages: List[Dict[str, str]],
         temperature: float = 0.7,
         max_tokens: int = 4096,
-        response_format: Optional[Dict] = None
+        response_format: Optional[Dict] = None,
+        auto_continue: int = 0
     ) -> str:
         """
         채팅 요청을 전송합니다.
-        
+
         Args:
             messages: 메시지 목록
             temperature: 온도 파라미터
             max_tokens: 최대 토큰 수
             response_format: 응답 형식(예: JSON 모드)
-            
+            auto_continue: Ollama가 토큰 한도(done_reason=length)로 응답을 끊었을 때,
+                부분 응답을 이어붙여 추가 생성하는 최대 횟수(평문 전용). 0이면 비활성.
+
         Returns:
             모델 응답 텍스트
         """
         if self._is_ollama():
-            return self._ollama_chat(messages, temperature, max_tokens)
+            content = self._ollama_chat(messages, temperature, max_tokens)
+            # 잘렸으면 이어쓰기로 마저 생성한다(평문 전용; json_mode는 _ollama_chat에서 막힘).
+            continues = 0
+            convo = messages
+            while self.last_truncated and continues < auto_continue:
+                continues += 1
+                logger.info(f"이어쓰기 {continues}/{auto_continue} — 잘린 응답을 마저 생성")
+                convo = convo + [
+                    {"role": "assistant", "content": content},
+                    {"role": "user", "content": (
+                        "직전 답변이 토큰 한도로 중간에 끊겼습니다. "
+                        "끊긴 지점의 바로 다음 글자부터, 인사말이나 반복 없이 이어서 계속 작성하세요."
+                    )},
+                ]
+                more = self._ollama_chat(convo, temperature, max_tokens)
+                if not more:
+                    break
+                content = (content + more) if content else more
+            return content
 
         kwargs = {
             "model": self.model,
@@ -126,6 +153,8 @@ class LLMClient:
         content = response.choices[0].message.content
         # 일부 모델(예: MiniMax M2.5)은 content에 <think>를 포함하므로 제거
         content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
+        # OpenAI 호환 경로: 토큰 한도 절단 여부를 finish_reason으로 반영
+        self.last_truncated = (response.choices[0].finish_reason == "length")
         return content
     
     def chat_json(

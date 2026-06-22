@@ -791,7 +791,15 @@ class ReportAgent:
     
     # 채팅 응답당 도구 호출 한도
     MAX_TOOL_CALLS_PER_CHAT = 2
-    
+
+    # 도구 결과를 메시지 히스토리에 주입할 때의 최대 글자 수.
+    # insight_forge/interview 결과(수만 자)가 num_ctx를 채워 섹션 출력이 잘리는 것을 방지한다.
+    # (로그에는 전체 결과가 그대로 기록된다.)
+    MAX_TOOL_RESULT_CHARS = 4000
+
+    # 섹션 본문이 토큰 한도로 잘렸을 때 이어쓰기를 시도하는 최대 횟수
+    SECTION_AUTO_CONTINUE = 3
+
     def __init__(
         self, 
         graph_id: str,
@@ -824,6 +832,8 @@ class ReportAgent:
         self.report_logger: Optional[ReportLogger] = None
         # 콘솔 출력 로그 핸들러
         self.console_logger: Optional[ReportConsoleLogger] = None
+        # 토큰 한도로 끝까지 못 채우고 잘린 섹션 제목 모음(이어쓰기 소진 후에도 잘린 경우)
+        self.truncated_sections: List[str] = []
         
         logger.info(f"ReportAgent 완료: graph_id={graph_id}, simulation_id={simulation_id}")
     
@@ -1215,7 +1225,8 @@ class ReportAgent:
             response = self.llm.chat(
                 messages=messages,
                 temperature=0.5,
-                max_tokens=8000
+                max_tokens=8000,
+                auto_continue=self.SECTION_AUTO_CONTINUE
             )
 
             #  LLM 반환 None(API )
@@ -1302,6 +1313,11 @@ class ReportAgent:
 
                 # 
                 final_answer = response.split("Final Answer:")[-1].strip()
+                # 이어쓰기까지 소진한 뒤에도 토큰 한도로 잘렸으면 기록해 둔다.
+                if getattr(self.llm, "last_truncated", False):
+                    logger.warning(f"섹션 {section.title}: 이어쓰기 후에도 토큰 한도로 잘림")
+                    if section.title not in self.truncated_sections:
+                        self.truncated_sections.append(section.title)
                 logger.info(f"섹션 {section.title} 생성완료(도구 호출: {tool_calls_count})")
 
                 if self.report_logger:
@@ -1359,6 +1375,16 @@ class ReportAgent:
                 tool_calls_count += 1
                 used_tools.add(call['name'])
 
+                # 메시지 히스토리에는 잘라서 주입한다(전체는 위 log_tool_result에 기록됨).
+                # 큰 도구 결과가 num_ctx를 잠식해 섹션 출력이 잘리는 것을 막는다.
+                if len(result) > self.MAX_TOOL_RESULT_CHARS:
+                    injected_result = (
+                        result[:self.MAX_TOOL_RESULT_CHARS]
+                        + f"\n\n…(결과가 길어 {self.MAX_TOOL_RESULT_CHARS}자에서 잘림; 핵심 근거만 사용하세요)"
+                    )
+                else:
+                    injected_result = result
+
                 # 도구
                 unused_tools = all_tools - used_tools
                 unused_hint = ""
@@ -1370,7 +1396,7 @@ class ReportAgent:
                     "role": "user",
                     "content": REACT_OBSERVATION_TEMPLATE.format(
                         tool_name=call["name"],
-                        result=result,
+                        result=injected_result,
                         tool_calls_count=tool_calls_count,
                         max_tool_calls=self.MAX_TOOL_CALLS_PER_SECTION,
                         used_tools_str=", ".join(used_tools),
@@ -1418,7 +1444,8 @@ class ReportAgent:
         response = self.llm.chat(
             messages=messages,
             temperature=0.5,
-            max_tokens=8000
+            max_tokens=8000,
+            auto_continue=self.SECTION_AUTO_CONTINUE
         )
 
         #  LLM 반환 None
@@ -1429,7 +1456,13 @@ class ReportAgent:
             final_answer = response.split("Final Answer:")[-1].strip()
         else:
             final_answer = response
-        
+
+        # 이어쓰기까지 소진한 뒤에도 토큰 한도로 잘렸으면 기록해 둔다.
+        if getattr(self.llm, "last_truncated", False):
+            logger.warning(f"섹션 {section.title}: 이어쓰기 후에도 토큰 한도로 잘림(강제 생성 경로)")
+            if section.title not in self.truncated_sections:
+                self.truncated_sections.append(section.title)
+
         # 섹션생성완료로그
         if self.report_logger:
             self.report_logger.log_section_content(
@@ -1630,16 +1663,26 @@ class ReportAgent:
                     total_time_seconds=total_time_seconds
                 )
             
+            # 토큰 한도로 끝까지 못 채운 섹션이 있으면 완료 메시지에 경고를 남긴다.
+            if self.truncated_sections:
+                complete_msg = (
+                    "보고서 생성완료(주의: 다음 섹션이 토큰 한도로 잘림 — "
+                    + ", ".join(self.truncated_sections) + ")"
+                )
+                logger.warning(f"보고서 {report_id}: 잘린 섹션 {self.truncated_sections}")
+            else:
+                complete_msg = "보고서 생성완료"
+
             # 저장보고서
             ReportManager.save_report(report)
             ReportManager.update_progress(
-                report_id, "completed", 100, "보고서 생성완료",
+                report_id, "completed", 100, complete_msg,
                 completed_sections=completed_section_titles
             )
-            
+
             if progress_callback:
-                progress_callback("completed", 100, "보고서 생성완료")
-            
+                progress_callback("completed", 100, complete_msg)
+
             logger.info(f"보고서 생성완료: {report_id}")
             
             # 콘솔로그
