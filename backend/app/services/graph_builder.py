@@ -4,18 +4,20 @@ API 2: Zep API를 사용해 Standalone Graph를 구축한다.
 """
 
 import os
+import re
 import uuid
 import time
 import threading
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass
 
-from zep_cloud.client import Zep
 from zep_cloud import EpisodeData, EntityEdgeSourceTarget
 
 from ..config import Config
 from ..models.task import TaskManager, TaskStatus
 from ..utils.zep_paging import fetch_all_nodes, fetch_all_edges
+from ..utils.zep_client import create_zep_client
+from ..utils.logger import get_logger
 from .text_processor import TextProcessor
 
 
@@ -47,7 +49,7 @@ class GraphBuilderService:
         if not self.api_key:
             raise ValueError("ZEP_API_KEY가 설정되지 않았습니다")
         
-        self.client = Zep(api_key=self.api_key)
+        self.client = create_zep_client(self.api_key)
         self.task_manager = TaskManager()
     
     def build_graph_async(
@@ -295,6 +297,27 @@ class GraphBuilderService:
         """텍스트를 그래프에 배치로 추가하고 episode uuid 목록을 반환한다."""
         episode_uuids = []
         total_chunks = len(chunks)
+        debug_chunks = os.getenv("MIROFISH_DEBUG_ZEP_CHUNKS", "").lower() in {"1", "true", "yes"}
+
+        def log_chunk_quality(index: int, chunk: str) -> None:
+            if not debug_chunks:
+                return
+            sample = " ".join(chunk[:240].split())
+            hangul = len(re.findall(r'[\uac00-\ud7a3]', chunk))
+            mojibake = len(re.findall(r'[\u00ec\u00ed\u00ee\u00ef\u00eb\u00ea\u00f0]', chunk))
+            replacement = chunk.count('\ufffd')
+            build_logger = get_logger('mirofish.build')
+            build_logger.info(
+                "[ZEP-CHUNK-DEBUG] graph_id=%s chunk=%s/%s len=%s hangul=%s mojibake=%s replacement=%s sample=%r",
+                graph_id,
+                index + 1,
+                total_chunks,
+                len(chunk),
+                hangul,
+                mojibake,
+                replacement,
+                sample,
+            )
         
         for i in range(0, total_chunks, batch_size):
             batch_chunks = chunks[i:i + batch_size]
@@ -309,6 +332,9 @@ class GraphBuilderService:
                 )
             
             # episode 데이터 생성
+            for offset, chunk in enumerate(batch_chunks):
+                log_chunk_quality(i + offset, chunk)
+
             episodes = [
                 EpisodeData(data=chunk, type="text")
                 for chunk in batch_chunks

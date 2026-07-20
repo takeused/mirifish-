@@ -26,6 +26,7 @@ build/
 
 # Node.js
 node_modules/
+.npm-cache/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -38,6 +39,7 @@ yarn-error.log*
 
 # 테스트
 .pytest_cache/
+.uv-cache/
 .coverage
 htmlcov/
 
@@ -58,3 +60,12 @@ backend/uploads/
 
 # Docker 데이터
 data/
+
+# tiktoken 인코딩 캐시 (회사망 TLS 차단 대응, 로컬 전용)
+backend/.tiktoken-cache/
+
+# 회사 CA 번들 (로컬 전용, 비밀 아님이지만 머신 고유)
+backend/.corp-ca-bundle.pem
+
+# 로컬 실행 런북 (로컬 경로/사내망 설정 등 내부 환경 정보 포함 — 공개 저장소에 올리지 않음)
+HANDOFF.md

@@ -11,7 +11,6 @@ from flask import request, jsonify
 from . import graph_bp
 from ..config import Config
 from ..services.ontology_generator import OntologyGenerator
-from ..services.graph_builder import GraphBuilderService
 from ..services.text_processor import TextProcessor
 from ..utils.file_parser import FileParser
 from ..utils.logger import get_logger
@@ -374,6 +373,7 @@ def build_graph():
                 )
                 
                 # 그래프 구축 서비스 생성
+                from ..services.graph_builder import GraphBuilderService
                 builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
                 
                 # 청크 분할
@@ -559,6 +559,7 @@ def get_graph_data(graph_id: str):
                 "error": "ZEP_API_KEY가 설정되지 않았습니다"
             }), 500
         
+        from ..services.graph_builder import GraphBuilderService
         builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
         graph_data = builder.get_graph_data(graph_id)
         
@@ -585,6 +586,7 @@ def delete_graph(graph_id: str):
                 "error": "ZEP_API_KEY가 설정되지 않았습니다"
             }), 500
         
+        from ..services.graph_builder import GraphBuilderService
         builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
         builder.delete_graph(graph_id)
         

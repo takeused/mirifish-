@@ -4,6 +4,7 @@ PDF, Markdown, TXT 파일의 텍스트 추출을 지원합니다.
 """
 
 import os
+import re
 from pathlib import Path
 from typing import List, Optional
 
@@ -110,6 +111,110 @@ class FileParser:
         
         return "\n\n".join(text_parts)
     
+    @staticmethod
+    def _extract_from_pdf(file_path: str) -> str:
+        """Extract text from a PDF using the best lightweight candidate."""
+        candidates = []
+
+        for name, extractor in (
+            ("pymupdf", FileParser._extract_pdf_pymupdf),
+            ("pypdf", FileParser._extract_pdf_pypdf),
+            ("pdfplumber", FileParser._extract_pdf_pdfplumber),
+        ):
+            try:
+                text = extractor(file_path)
+            except Exception:
+                continue
+
+            for variant in FileParser._text_variants(text):
+                candidates.append((FileParser._text_quality_score(variant), name, variant))
+
+        if not candidates:
+            raise ValueError("PDF text extraction failed for all available engines.")
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return candidates[0][2]
+
+    @staticmethod
+    def _extract_pdf_pymupdf(file_path: str) -> str:
+        import fitz  # PyMuPDF
+
+        text_parts = []
+        with fitz.open(file_path) as doc:
+            for page in doc:
+                text = page.get_text("text")
+                if text.strip():
+                    text_parts.append(text)
+        return "\n\n".join(text_parts)
+
+    @staticmethod
+    def _extract_pdf_pypdf(file_path: str) -> str:
+        from pypdf import PdfReader
+
+        text_parts = []
+        reader = PdfReader(file_path)
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            if text.strip():
+                text_parts.append(text)
+        return "\n\n".join(text_parts)
+
+    @staticmethod
+    def _extract_pdf_pdfplumber(file_path: str) -> str:
+        import pdfplumber
+
+        text_parts = []
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text() or ""
+                if text.strip():
+                    text_parts.append(text)
+        return "\n\n".join(text_parts)
+
+    @staticmethod
+    def _text_variants(text: str) -> List[str]:
+        variants = [text]
+        try:
+            import ftfy
+            fixed = ftfy.fix_text(text)
+            if fixed != text:
+                variants.append(fixed)
+        except Exception:
+            pass
+        return variants
+
+    @staticmethod
+    def _text_quality_score(text: str) -> float:
+        if not text or not text.strip():
+            return -1_000_000
+
+        total = max(len(text), 1)
+        hangul = len(re.findall(r'[\uac00-\ud7a3]', text))
+        ascii_letters = len(re.findall(r'[A-Za-z]', text))
+        replacement = text.count('\ufffd')
+        mojibake = len(re.findall(r'[ìíîïëêð]', text))
+        question_noise = len(re.findall(r'\?{2,}', text))
+        control = len(re.findall(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', text))
+        words = len(re.findall(r'\S+', text))
+
+        score = len(text) * 0.01
+        score += hangul * 2.0
+        score += ascii_letters * 0.15
+        score += words * 0.2
+        score -= replacement * 8.0
+        score -= mojibake * 2.0
+        score -= question_noise * 5.0
+        score -= control * 10.0
+
+        if hangul / total > 0.05:
+            score += 100
+        if replacement / total > 0.01:
+            score -= 250
+        if mojibake / total > 0.03:
+            score -= 250
+
+        return score
+
     @staticmethod
     def _extract_from_md(file_path: str) -> str:
         """Markdown에서 텍스트를 추출합니다(자동 인코딩 탐지 지원)."""

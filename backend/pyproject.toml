@@ -12,26 +12,24 @@ dependencies = [
     # 핵심 프레임워크
     "flask>=3.0.0",
     "flask-cors>=6.0.0",
-    
     # LLM 관련
     "openai>=1.0.0",
-    
     # Zep Cloud
     "zep-cloud==3.13.0",
-    
     # OASIS 소셜 미디어 시뮬레이션
     "camel-oasis==0.2.5",
     "camel-ai==0.2.78",
-    
     # 파일 처리
     "PyMuPDF>=1.24.0",
     # 인코딩 감지(UTF-8이 아닌 텍스트 파일 지원)
     "charset-normalizer>=3.0.0",
     "chardet>=5.0.0",
-    
     # 유틸리티 라이브러리
     "python-dotenv>=1.0.0",
     "pydantic>=2.0.0",
+    "truststore>=0.10.4",
+    "pdfplumber>=0.11.9",
+    "ftfy>=6.3.1",
 ]
 
 [project.optional-dependencies]

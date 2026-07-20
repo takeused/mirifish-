@@ -35,6 +35,12 @@ service.interceptors.response.use(
   },
   error => {
     console.error('Response error:', error)
+    if (error.response?.data) {
+      const message = error.response.data.error || error.response.data.message
+      if (message) {
+        return Promise.reject(new Error(message))
+      }
+    }
     
     // 타임아웃 처리
     if (error.code === 'ECONNABORTED' && error.message.includes('timeout')) {

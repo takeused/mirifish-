@@ -95,6 +95,9 @@ const graphData = ref(null)
 const graphLoading = ref(false)
 const systemLogs = ref([])
 const currentStatus = ref('processing') // processing | completed | error
+const graphRefreshInFlight = ref(false)
+const lastGraphLoadError = ref('')
+const lastGraphLoadErrorAt = ref(0)
 
 // --- Computed Layout Styles ---
 const leftPanelStyle = computed(() => {
@@ -241,6 +244,11 @@ const loadSimulationData = async () => {
 }
 
 const loadGraph = async (graphId) => {
+  if (graphRefreshInFlight.value) {
+    return
+  }
+
+  graphRefreshInFlight.value = true
   // 시뮬레이션 진행 중 자동 새로고침에서는 전체 로딩을 숨겨 깜빡임을 줄임
   // 수동 새로고침/초기 로딩에서는 로딩 표시
   if (!isSimulating.value) {
@@ -251,14 +259,23 @@ const loadGraph = async (graphId) => {
     const res = await getGraphData(graphId)
     if (res.success) {
       graphData.value = res.data
+      lastGraphLoadError.value = ''
+      lastGraphLoadErrorAt.value = 0
       if (!isSimulating.value) {
         addLog('그래프 데이터 로드 완료')
       }
     }
   } catch (err) {
-    addLog(`그래프 로드 실패: ${err.message}`)
+    const message = err.message || 'Unknown error'
+    const now = Date.now()
+    if (message !== lastGraphLoadError.value || now - lastGraphLoadErrorAt.value > 120000) {
+      addLog(`그래프 로드 실패: ${message}`)
+      lastGraphLoadError.value = message
+      lastGraphLoadErrorAt.value = now
+    }
   } finally {
     graphLoading.value = false
+    graphRefreshInFlight.value = false
   }
 }
 

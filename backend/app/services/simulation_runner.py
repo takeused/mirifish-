@@ -28,6 +28,31 @@ logger = get_logger('mirofish.simulation_runner')
 # 
 _cleanup_registered = False
 
+
+def _get_backend_python() -> str:
+    """Return the backend virtualenv Python when available."""
+    backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+    venv_python = os.path.join(backend_root, ".venv", "Scripts", "python.exe")
+    if os.path.exists(venv_python):
+        return venv_python
+    return sys.executable
+
+
+def _validate_simulation_python(python_path: str) -> None:
+    """Fail early when the simulation subprocess cannot import core packages."""
+    try:
+        subprocess.run(
+            [python_path, "-c", "import camel"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Simulation Python is missing required package 'camel': {python_path}"
+        ) from exc
+
 # 플랫폼
 IS_WINDOWS = sys.platform == 'win32'
 
@@ -412,8 +437,11 @@ class SimulationRunner:
             #   reddit/actions.jsonl  - Reddit 로그
             #   simulation.log        - 로그
             
+            python_path = _get_backend_python()
+            _validate_simulation_python(python_path)
+
             cmd = [
-                sys.executable,  # Python
+                python_path,  # Python
                 script_path,
                 "--config", config_path,  # 설정 파일
             ]
