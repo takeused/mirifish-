@@ -121,6 +121,20 @@
     margin:18px 0; padding:14px 20px; border-left:3px solid var(--accent-2);
     background:var(--accent-soft); font-size:15px; color:var(--ink-2); border-radius:0 5px 5px 0;
   }
+  /* 시뮬레이션 에이전트 인터뷰 인용 */
+  .iquote{
+    margin:16px 0; padding:13px 18px 13px 46px; position:relative;
+    background:#f6f8fb; border:1px solid var(--line); border-radius:6px;
+    font-size:13.5px; line-height:1.65; color:var(--ink-2); font-style:italic;
+  }
+  .iquote::before{
+    content:"❝"; position:absolute; left:16px; top:10px;
+    font-size:20px; color:var(--accent-2); font-style:normal; line-height:1;
+  }
+  .iquote .src{
+    display:block; margin-top:7px; font-style:normal; font-size:11.5px;
+    color:var(--ink-3); letter-spacing:.02em;
+  }
 
   footer{
     padding:30px 60px 50px; color:var(--ink-3); font-size:12.5px;
@@ -150,7 +164,7 @@
 
 <header class="cover">
   <div class="eyebrow">Multi-Agent Simulation · Analysis Report</div>
-  <h1>전략 기술 도입에 따른 주요 이해관계자들의<br>규제 및 컴플라이언스 인식 변화 분석</h1>
+  <h1>전략 기술 도입에 따른<br>기업 거버넌스 및 규제 대응 변화 분석</h1>
   <p class="subtitle">
     Gartner 10대 전략기술 트렌드 보고서를 지식그래프로 구조화하고, 문서에서 추출한
     이해관계자를 LLM 기반 소셜 시뮬레이션 에이전트로 구현하여 관측한 인식 변화 분석.
@@ -399,7 +413,7 @@
   </div>
 
   <h3>4.1 보고서 작성에 사용된 근거 수집 도구</h3>
-  <p>본 보고서 생성 시 실제로 수행된 도구 호출 내역이다. 총 <strong>10회</strong>의 근거 수집이 이루어졌다.</p>
+  <p>본 보고서 생성 시 실제로 수행된 도구 호출 내역이다. 3개 섹션에 걸쳐 총 <strong>12회</strong>의 근거 수집이 이루어졌다.</p>
   <table>
     <thead>
       <tr><th>도구</th><th>역할</th><th class="num">호출</th><th class="num">수집 근거량</th></tr>
@@ -408,25 +422,30 @@
       <tr>
         <td class="mono">insight_forge</td>
         <td>그래프 전반을 종합해 특정 질문에 대한 심층 분석을 도출</td>
-        <td class="num">3</td><td class="num">18.3k–26.7k자</td>
-      </tr>
-      <tr>
-        <td class="mono">panorama_search</td>
-        <td>그래프 내 관련 노드·관계를 광범위하게 탐색</td>
-        <td class="num">3</td><td class="num">8.5k–8.8k자</td>
-      </tr>
-      <tr>
-        <td class="mono">quick_search</td>
-        <td>특정 사실을 좁은 범위로 신속 조회</td>
-        <td class="num">3</td><td class="num">0.4k–0.8k자</td>
+        <td class="num">3</td><td class="num">19.3k–22.8k자</td>
       </tr>
       <tr>
         <td class="mono">interview_agents</td>
         <td><strong>실행 중인 시뮬레이션 에이전트에게 직접 질의</strong>하여 응답 수집</td>
-        <td class="num">1</td><td class="num">8.9k자</td>
+        <td class="num">3</td><td class="num">8.9k–14.4k자</td>
+      </tr>
+      <tr>
+        <td class="mono">panorama_search</td>
+        <td>그래프 내 관련 노드·관계를 광범위하게 탐색</td>
+        <td class="num">3</td><td class="num">4.0k자</td>
+      </tr>
+      <tr>
+        <td class="mono">quick_search</td>
+        <td>특정 사실을 좁은 범위로 신속 조회</td>
+        <td class="num">3</td><td class="num">0.5k–0.7k자</td>
       </tr>
     </tbody>
   </table>
+  <p class="note">
+    각 섹션마다 <strong>네 종류의 도구를 모두 사용</strong>하도록 설계되어 있어, 그래프 기반 근거(insight_forge·
+    panorama_search·quick_search)와 시뮬레이션 내부 근거(interview_agents)가 균형 있게 반영된다.
+    본 실행에서 <code>insight_forge</code>는 마지막 섹션 기준 <strong>41개 사실 · 38개 엔터티 · 44개 관계</strong>를 추출했다.
+  </p>
 </section>
 
 <!-- ══════════ 4. 기술 환경 ══════════ -->
@@ -476,113 +495,134 @@
   <p class="h2-note">위 절차를 통해 도출된 보고서 본문</p>
 
   <div class="quote" style="font-size:15.5px">
-    디지털 출처 검증(Provenance) 및 AI 보안 플랫폼 같은 전략 기술이 기업의 법적 의무 준수 관점에서
-    어떻게 인식되고 채택되는지를 핵심 주체별로 추적한다.
+    AI 기반 전략 기술의 확산 과정에서, 기업 경영진이 법률·보안·컴플라이언스를 통합하여
+    조직 구조를 재편하는 양상을 추적한다.
   </div>
 
   <div class="finding">
-    <h3>6.1 경영진(CEO/CFO)의 규제 대응 패러다임 변화</h3>
+    <h3>6.1 전략 기술 도입에 따른 최고 경영진(C-Level) 인식 변화</h3>
     <p>
-      CEO와 CFO의 관점에서 규제 대응 패러다임은 단순한 ‘리스크 회피’에서
-      <strong>‘전략적 컴플라이언스 확보를 통한 성장 동력화’</strong>로 근본적인 전환을 겪고 있다.
-      과거에는 법규 준수가 사후 점검(Audit)에 가깝게 인식되었으나, 이제는 기술 도입 자체의
-      전제 조건으로 간주된다.
+      최고 경영진의 인식은 전략 기술을 단순한 생산성 도구를 넘어,
+      <strong>법적 의무 이행과 비즈니스 연속성을 담보하는 핵심 거버넌스 요소</strong>로 재정의하고 있다.
+      C-Level의 관심사는 ‘어떻게 기술을 도입하여 성장할 것인가’에서
+      <strong>‘기술 도입 과정 전반에 걸쳐 어떻게 법적 책임을 확보하고 통제할 것인가’</strong>로 이동했다.
     </p>
-    <p>가장 명확하게 관찰된 변화는 다음과 같다.</p>
+    <p>가장 명확하게 관찰된 변화는 다음 세 가지다.</p>
     <ul>
       <li>
-        <strong>기술적 도구화</strong> — AI 보안 플랫폼과 디지털 출처 확인(Digital Provenance
-        Verification) 기술은 더 이상 단순한 IT 인프라 개선 사항이 아니다. 이들 기술은
-        “법적 의무 이행을 위한 전략적 컴플라이언스 도구”로 명시적으로 인식되며, 이는 법적
-        준수가 기술 스택의 핵심 요소로 편입되었음을 의미한다.
+        <strong>책임 소재의 다층화 및 추적성 요구 증대</strong> — 책임은 더 이상 최종 결과물만으로
+        판단되지 않는다. AI 생성물의 모든 변동 과정과 의사결정 경로를 추적할 수 있는 메타데이터
+        레이어 구축과 SBOM(Software Bill of Materials) 확보가 법적 투명성의 핵심으로 인식되며,
+        이는 개발 초기 단계부터 책임 분담 구조를 설계하는 거버넌스 체계를 요구한다.
       </li>
       <li>
-        <strong>통합 거버넌스의 요구</strong> — 기술 혁신과 위험 관리가 분리될 수 없다는 인식이
-        확산되어, 기술적 진단과 법률적 해석이 결합된 통합적 접근이 생존을 결정짓는 요소로 부상했다.
+        <strong>‘법규 준수 설계(Legal-by-Design)’의 의무화</strong> — 규제 대응을 사후 검토가 아니라
+        기술 혁신 로드맵 수립 단계부터 최우선 요구사항으로 반영해야 한다는 인식이다. 특히
+        <em>데이터 주권(Data Sovereignty)</em> 확보와 AI 모델의 <em>설명 가능성(Explainability)</em>
+        부재가 가장 우선순위 높은 위험 요소로 지목되었다.
       </li>
       <li>
-        <strong>의사결정 과정 참여</strong> — 규제 리스크 통제를 위해 법률 전문가(Legal Architect)가
-        기술 의사결정 초기 단계부터 참여해야 한다는 인식이 확산되었다. 비즈니스 요구사항 정의
-        단계에서 규제 시나리오를 검증하는 ‘레귤레이토리 모델링’이 대응책으로 제시된다.
+        <strong>거버넌스 프레임워크의 고도화</strong> — 선제적 규제 대응 메커니즘으로
+        <strong>Regulatory Intelligence Layer(RIL)</strong> 구축이 제시되었다. 법률 위반 징후와 글로벌
+        규제를 지속 모니터링하고, 기술 아키텍처 전반에 컴플라이언스 모듈성을 확보하는 방향이다.
       </li>
     </ul>
     <p>
-      재무적 관점에서도 변화가 감지된다. CFO들은 AI-Native 플랫폼 도입에 초점을 맞추면서도,
-      규제 불확실성 해소가 비용 절감 및 생산성 향상과 직결됨을 인지하고 있다. 특히 데이터
-      주권(Data Sovereignty) 확보를 위한 SBOM 확보, 기밀 컴퓨팅 같은 기술적 컴플라이언스 요소가
-      전략적으로 중요하게 다루어진다.
-    </p>
-    <p>
-      종합하면 경영진은 <strong>‘책임 소재(Accountability)의 명확화’</strong>와
-      <strong>데이터 주권 보장</strong>을 가장 시급한 과제로 인식하며, 이를 위해 법률 전문가를
-      포함하는 전사적 프로세스 개선이 필수적이라고 판단하고 있다.
+      요약하면 C-Level은 AI 도입의 성공이 <strong>기술적 우위(AI-Native)와 법률적 안정성(Compliance)</strong>
+      두 축을 얼마나 통합적으로 관리하느냐에 달려 있다고 인식하며, 이 과정에서 기술 아키텍처 자체가
+      법적 안전성을 담보하는 핵심 전제 조건으로 격상되었다.
     </p>
   </div>
 
   <div class="finding">
-    <h3>6.2 기업의 운영 환경 재편 패턴 — 클라우드 및 지리적 리스크 대응</h3>
+    <h3>6.2 법률/보안 전문가와 기술 리더 간의 협업 구조 변화</h3>
     <p>
-      운영 환경의 재편은 지리적 제약과 데이터 주권이라는 규제적 압박에 의해 가속화되고 있으며,
-      기술 스택 전반의 근본적 변화를 요구한다. 기업들은 클라우드를 단일한 ‘자원 제공처’가 아니라
-      <strong>규제 준수와 비즈니스 연속성(BCP)을 담보하는 전략적 영역</strong>으로 재정의하고 있다.
+      전략 기술의 도입은 법률·보안 전문가와 기술 리더의 협업 구조를 ‘사후 검토’ 중심에서
+      <strong>‘설계 단계부터 통합하는 공정(Process)’</strong> 중심으로 전환시키고 있다. 과거에는 기술
+      개발 완료 후 규제 준수를 점검하는 방식이 주류였으나, 이제 법률·보안 검증을 초기에 삽입해야
+      한다는 방향이 뚜렷하다.
     </p>
     <p>
-      지리적 리스크 대응에서 가장 두드러지는 기술적 진화는 데이터가 저장되는 시점(At Rest)을 넘어
-      <strong>처리되는 순간(In Use)까지 보호</strong>하려는 움직임이다. 기밀 컴퓨팅은 신뢰 실행
-      환경(TEE)과 결합해 클라우드 제공자조차 접근할 수 없는 수준의 데이터 보호를 가능하게 하는
-      핵심 인프라 표준으로 자리매김하고 있다.
+      가장 두드러진 변화는 <strong>의사결정 구조 자체에 법률 전문가를 필수 참여자로 지정</strong>하는
+      것이다. 기술적 결정(예: AI 슈퍼컴퓨팅 인프라 구축)이 내려지기 전에 법률 전문가가 참여해
+      잠재적 법적 위험을 사전 통제하는 ‘사전 예방 거버넌스’의 확립을 의미한다.
     </p>
-    <p>또한 글로벌 규제 요구 증가는 ‘기술적 투명성 확보’라는 새로운 의무를 부과했다.</p>
-    <ul>
-      <li>
-        <strong>데이터 출처 확인(Digital Provenance)</strong> — AI 생성물·데이터의 무결성과 변조
-        여부를 입증하는 필수 요소이며, 딥페이크 등 위협에 대한 대응책으로 활용된다.
-      </li>
-      <li>
-        <strong>SBOM(Software Bill of Materials) 확보</strong> — 사용된 모든 소프트웨어 구성요소를
-        명시해 잠재적 취약점과 공급망 리스크를 사전 식별·관리하는 것이 필수화되었다.
-      </li>
-    </ul>
+    <div class="iquote">
+      “Legal Architects must be involved in decision-making processes to proactively control legal risks.”
+      <span class="src">— 시뮬레이션 에이전트 인터뷰</span>
+    </div>
+    <div class="iquote">
+      “법률 및 보안 요구사항을 개발 초기 단계(Shift Left)에 통합하는 프로세스는
+      ‘책임 기반 설계(Security by Design)’ 원칙을 준수해야 합니다.”
+      <span class="src">— 시뮬레이션 에이전트 인터뷰</span>
+    </div>
     <p>
-      이러한 흐름은 기술적 진단 단계에서부터 법률 전문가가 개입해 <strong>데이터 주권 및 지리적
-      데이터 거주지(Data Residency)</strong> 문제를 최우선으로 다루는 통합 리스크 거버넌스를
-      요구한다. 궁극적으로 기업들은 단순한 지역 분산을 넘어, 각 관할권의 규제 요건에 맞춰
-      <strong>기술적 통제권을 확보하는 아키텍처 설계</strong>를 생존 전략으로 채택하고 있다.
+      또한 협업의 초점은 단순한 데이터 보호를 넘어 <strong>추적 가능성(Traceability)과 책임 할당 구조
+      설계</strong>로 이동했다. 기술 리더들은 AI 생성물의 저작권 침해 리스크 관리, 디지털 출처 확인,
+      SBOM 확보를 필수 컴플라이언스 요소로 인지하고 있으며, 이는 법률적 해석이 기술 아키텍처의
+      핵심 사양으로 편입되었음을 보여준다.
+    </p>
+    <p>
+      전문가들은 이러한 통합을 위해 <strong>‘Shift-Left’ 접근</strong>과 전사적 Impact Assessment
+      프로세스를 제안한다. 기획·설계 단계부터 법무 검토팀과 정보보호팀이 필수 참여해 민감 데이터
+      처리 방안, 개인정보 비식별화 계획, 설명 가능성 요구사항을 정의하는 워크플로우 구축이 핵심이다.
+    </p>
+    <p>
+      결론적으로 성공적인 기술 도입은 더 이상 ‘기술적 우위’와 ‘법률적 안정성’의 이분법으로 설명되지
+      않는다. <strong>법률·보안 전문 지식이 기술 설계 프로세스 자체에 내재화되어야만 비즈니스 연속성과
+      법적 안정성을 동시에 확보할 수 있는 구조</strong>로 진화하고 있다.
     </p>
   </div>
 
   <div class="finding">
-    <h3>6.3 기술 도입의 컴플라이언스 중심 전환 — 주요 기술별 인식 변화</h3>
+    <h3>6.3 외부 이해관계자(규제기관 및 시장)의 영향력 증대 양상</h3>
     <p>
-      컴플라이언스 인식의 변화는 단순한 기능적 개선을 넘어, <strong>기술 자체를 법적 의무 이행의
-      핵심 수단으로 재정의</strong>하는 추세로 나타난다. 경영진은 AI 보안 플랫폼과 디지털 출처 확인
-      기술을 순수한 IT 인프라 개선이 아니라, 법적 의무를 충족하고 시장 신뢰를 확보하기 위한
-      ‘전략적 컴플라이언스 도구’로 인식하고 있다.
+      외부 이해관계자의 영향력 증가는 기술 도입 논의의 초점을 ‘효율성’에서
+      <strong>‘검증 가능성과 통제된 환경에서의 운영 가능성’</strong>으로 이동시키고 있다. 이 외부 압력은
+      기업 내부 거버넌스 설계에 직접적인 요구사항을 부과하며, 세 가지 축으로 구체화된다.
     </p>
+
+    <h4>① 데이터 처리 과정 전반의 신뢰성 확보가 필수 표준으로 격상</h4>
     <p>
-      특히 AI 슈퍼컴퓨팅 같은 고도화된 플랫폼 구축 과정에서는 법률 전문가의 개입이 필수 요소로
-      부상했다. 이는 기술 결정 단계에서부터 데이터 현지화, 국제 규제 준수 같은 지리적 리스크를
-      최우선으로 고려해야 함을 의미한다.
+      규제기관과 법률 전문가들은 데이터가 저장(At Rest)될 때뿐 아니라
+      <strong>처리(In Use)되는 순간</strong>에도 보호받는 기술을 핵심 기준으로 제시한다.
     </p>
-    <p>기술적 관점에서 가장 높은 우선순위를 갖는 핵심 메커니즘은 다음과 같다.</p>
-    <ul>
-      <li>
-        <strong>디지털 출처 확인(Digital Provenance)</strong> — AI 생성물의 무결성·변조 여부 입증이
-        필수 요소로 자리매김했으며, 저작권 침해 리스크 관리와 직결되는 신뢰성 확보의 핵심 축이다.
-      </li>
-      <li>
-        <strong>SBOM 확보</strong> — 모든 소프트웨어 구성요소를 명시적으로 추적·검토하는 과정은
-        공급망 전체의 잠재 취약점과 규제 리스크를 사전 식별하기 위한 필수 절차로 간주된다.
-      </li>
-      <li>
-        <strong>AI 보안 플랫폼 및 기밀 컴퓨팅</strong> — 데이터 저장 시점뿐 아니라 처리되는 순간까지
-        보호하는 능력을 제공하며, 법적 의무 이행을 뒷받침하는 핵심 인프라 표준으로 인식된다.
-      </li>
-    </ul>
+    <div class="iquote">
+      “Confidential Computing guarantees regulatory compliance and privacy protection at the hardware level.”
+      <span class="src">— 시뮬레이션 에이전트 인터뷰</span>
+    </div>
     <p>
-      결론적으로 기업들은 기술적 투명성을 확보하고 데이터 주권을 지키기 위해, <strong>법률 해석,
-      보안 아키텍처 설계, 거버넌스 체계 구축이 결합된 통합적 접근</strong>을 채택하는 것이 생존
-      전략임을 인식하고 있다.
+      이는 클라우드 같은 ‘신뢰할 수 없는 인프라 환경’에서의 데이터 보호가 단순한 보안 조치를 넘어
+      <strong>법적 의무 이행의 전제 조건</strong>임을 뜻한다. 이러한 신뢰성 확보는 미래 인프라 구축의
+      핵심 표준이 될 전망이며, 관련 기술 도입은 규제 준수와 직결된다.
+    </p>
+
+    <h4>② 데이터 주권 및 출처 검증 요구 강화 — 지정학적 리스크와 직결</h4>
+    <div class="iquote">
+      “Businesses are adopting the strategy of relocating their work environment from global clouds
+      to domestic or local environments to respond to geopolitical risks and regulations.”
+      <span class="src">— 시뮬레이션 에이전트 인터뷰</span>
+    </div>
+    <p>
+      시장 참여자들은 AI 생성물과 데이터의 기원(Provenance)에 근본적 의문을 제기하며, 그 해법으로
+      <strong>디지털 출처 확인 기술</strong>과 <strong>SBOM</strong> 확보를 전략적 컴플라이언스 도구로
+      인식한다. 이는 모든 AI 결과물의 ‘책임 할당 구조 설계’를 위한 필수 전제이며, 규제기관의 감독
+      방식 역시 사후 적발식 감시에서 <strong>사전 영향 평가(PIA) 중심의 예방적 체계</strong>로
+      변화하고 있음을 인터뷰가 뒷받침한다.
+    </p>
+
+    <h4>③ 규제 준수 자체가 비즈니스 성장의 핵심 동력</h4>
+    <div class="iquote">
+      “CEO/CFO believes that companies should recognize AI security platforms and digital provenance
+      verification technology as strategic compliance tools for fulfilling legal obligations,
+      not just IT solutions.”
+      <span class="src">— 시뮬레이션 에이전트 인터뷰</span>
+    </div>
+    <p>
+      과거에는 기술적 우위 확보가 최우선이었으나, 이제는 <strong>‘기술적 우위(AI-Native)’와
+      ‘규제 준수성(Compliance)’을 통합 관리하는 능력</strong> 자체가 기업 생존의 핵심 지표가 되었다.
+      이러한 외부 요구는 결국 기업 아키텍처 전반에 법률·보안 요소를 근본적인 설계 단계부터
+      내재화하도록 강제하고 있다.
     </p>
   </div>
 </section>
